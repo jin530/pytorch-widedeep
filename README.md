@@ -96,6 +96,12 @@ Or install directly from github
 pip install git+https://github.com/jrzaurin/pytorch-widedeep.git
 ```
 
+Forked version
+
+```bash
+pip install git+https://github.com/jin530/pytorch-widedeep.git
+```
+
 #### Developer Install
 
 ```bash
