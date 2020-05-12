@@ -156,7 +156,7 @@ class DeepText(nn.Module):
             self.output_dim = head_layers[-1]
 
     def forward(self, X: Tensor) -> Tensor:  # type: ignore
-
+        self.rnn.flatten_parameters()
         embed = self.word_embed(X.long())
         o, (h, c) = self.rnn(embed)
         if self.bidirectional:
