@@ -199,8 +199,8 @@ class WideDeep(nn.Module):
     def compile(
         self,
         method: str,
-        optimizers: Optional[Union[Optimizer, Dict[str, Optimizer]]] = None,
-        lr_schedulers: Optional[Union[LRScheduler, Dict[str, LRScheduler]]] = None,
+        optimizer: Optional[Optimizer] = None,
+        lr_scheduler: Optional[LRScheduler] = None,
         initializers: Optional[Dict[str, Initializer]] = None,
         transforms: Optional[List[Transforms]] = None,
         callbacks: Optional[List[Callback]] = None,
@@ -220,18 +220,8 @@ class WideDeep(nn.Module):
         ----------
         method: Str
             One of ('regression', 'binary' or 'multiclass')
-        optimizers: Optimizer, Dict. Optional, Default=AdamW
-            Either an optimizers object (e.g. torch.optim.Adam()) or a
-            dictionary where there keys are the model's children (i.e. 'wide',
-            'deepdense', 'deeptext', 'deepimage' and/or 'deephead')  and the
-            values are the corresponding optimizers. If multiple optimizers
-            are used the  dictionary MUST contain an optimizer per child.
-        lr_schedulers: LRScheduler, Dict. Optional. Default=None
-            Either a LRScheduler object (e.g
-            torch.optim.lr_scheduler.StepLR(opt, step_size=5)) or dictionary
-            where there keys are the model's children (i.e. 'wide', 'deepdense',
-            'deeptext', 'deepimage' and/or 'deephead') and the values are the
-            corresponding learning rate schedulers.
+        optimizer: Optimizer. Optional, Default=AdamW
+        lr_scheduler: LRScheduler. Optional. Default=None
         initializers: Dict, Optional. Default=None
             Dict where there keys are the model's children (i.e. 'wide',
             'deepdense', 'deeptext', 'deepimage' and/or 'deephead') and the
@@ -281,22 +271,14 @@ class WideDeep(nn.Module):
         >>> from pytorch_widedeep.callbacks import *
         >>> from pytorch_widedeep.optim import RAdam
         >>> model = WideDeep(wide=wide, deepdense=deepdense, deeptext=deeptext, deepimage=deepimage)
-        >>> wide_opt = torch.optim.Adam(model.wide.parameters())
-        >>> deep_opt = torch.optim.Adam(model.deepdense.parameters())
-        >>> text_opt = RAdam(model.deeptext.parameters())
-        >>> img_opt  = RAdam(model.deepimage.parameters())
-        >>> wide_sch = torch.optim.lr_scheduler.StepLR(wide_opt, step_size=5)
-        >>> deep_sch = torch.optim.lr_scheduler.StepLR(deep_opt, step_size=3)
-        >>> text_sch = torch.optim.lr_scheduler.StepLR(text_opt, step_size=5)
-        >>> img_sch  = torch.optim.lr_scheduler.StepLR(img_opt, step_size=3)
-        >>> optimizers = {'wide': wide_opt, 'deepdense':deep_opt, 'deeptext':text_opt, 'deepimage': img_opt}
-        >>> schedulers = {'wide': wide_sch, 'deepdense':deep_sch, 'deeptext':text_sch, 'deepimage': img_sch}
+        >>> optimizer = torch.optim.AdamW(model.parameters())
+        >>> scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=3)
         >>> initializers = {'wide': Uniform, 'deepdense':Normal, 'deeptext':KaimingNormal,
         >>> ... 'deepimage':KaimingUniform}
         >>> transforms = [ToTensor, Normalize(mean=mean, std=std)]
         >>> callbacks = [LRHistory, EarlyStopping, ModelCheckpoint(filepath='model_weights/wd_out.pt')]
-        >>> model.compile(method='regression', initializers=initializers, optimizers=optimizers,
-        >>> ... lr_schedulers=schedulers, callbacks=callbacks, transforms=transforms)
+        >>> model.compile(method='regression', initializers=initializers, optimizer=optimizer,
+        >>> ... lr_scheduler=scheduler, callbacks=callbacks, transforms=transforms)
         """
         self.verbose = verbose
         self.seed = seed
@@ -317,31 +299,14 @@ class WideDeep(nn.Module):
             self.initializer = MultipleInitializer(initializers, verbose=self.verbose)
             self.initializer.apply(self)
 
-        if optimizers is not None:
-            if isinstance(optimizers, Optimizer):
-                self.optimizer: Union[Optimizer, MultipleOptimizer] = optimizers
-            elif len(optimizers) > 1:
-                opt_names = list(optimizers.keys())
-                mod_names = [n for n, c in self.named_children()]
-                for mn in mod_names:
-                    assert mn in opt_names, "No optimizer found for {}".format(mn)
-                self.optimizer = MultipleOptimizer(optimizers)
+        if optimizer is not None:
+            self.optimizer = optimizer
         else:
             self.optimizer = torch.optim.AdamW(self.parameters())  # type: ignore
 
-        if lr_schedulers is not None:
-            if isinstance(lr_schedulers, LRScheduler):
-                self.lr_scheduler: Union[
-                    LRScheduler, MultipleLRScheduler
-                ] = lr_schedulers
-                self.cyclic = "cycl" in self.lr_scheduler.__class__.__name__.lower()
-            elif len(lr_schedulers) > 1:
-                self.lr_scheduler = MultipleLRScheduler(lr_schedulers)
-                scheduler_names = [
-                    sc.__class__.__name__.lower()
-                    for _, sc in self.lr_scheduler._schedulers.items()
-                ]
-                self.cyclic = any(["cycl" in sn for sn in scheduler_names])
+        if lr_scheduler is not None:
+            self.lr_scheduler = lr_scheduler
+            self.cyclic = "cycl" in self.lr_scheduler.__class__.__name__.lower()
         else:
             self.lr_scheduler, self.cyclic = None, False
 
