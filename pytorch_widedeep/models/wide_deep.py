@@ -531,7 +531,7 @@ class WideDeep(nn.Module):
                     if acc is not None:
                         t.set_postfix(metrics=acc, loss=train_loss)
                     else:
-                        t.set_postfix(loss=np.sqrt(train_loss))
+                        t.set_postfix(loss=train_loss)
                     if self.lr_scheduler:
                         self._lr_scheduler_step(step_location="on_batch_end")
                     self.callback_container.on_batch_end(batch=batch_idx)
@@ -556,7 +556,7 @@ class WideDeep(nn.Module):
                             if acc is not None:
                                 v.set_postfix(metrics=acc, loss=val_loss)
                             else:
-                                v.set_postfix(loss=np.sqrt(val_loss))
+                                v.set_postfix(loss=val_loss)
                     epoch_logs["val_loss"] = val_loss
                     if acc is not None:
                         epoch_logs["val_acc"] = acc["acc"]
