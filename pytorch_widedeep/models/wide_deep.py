@@ -118,6 +118,7 @@ class WideDeep(nn.Module):
         head_layers: Optional[List[int]] = None,
         head_dropout: Optional[List] = None,
         head_batchnorm: Optional[bool] = None,
+        head_num = 1,
     ):
 
         super(WideDeep, self).__init__()
@@ -128,31 +129,52 @@ class WideDeep(nn.Module):
         self.deeptext = deeptext
         self.deepimage = deepimage
         self.deephead = deephead
+        self.head_num = head_num
 
         if self.deephead is None:
             if head_layers is not None:
-                input_dim: int = self.deepdense.output_dim  # type:ignore
+                input_dim: int = self.deepdense.output_dim # type:ignore
                 if self.deeptext is not None:
-                    input_dim += self.deeptext.output_dim
+                    input_dim += self.deeptext.output_dim 
                 if self.deepimage is not None:
-                    input_dim += self.deepimage.output_dim
+                    input_dim += self.deepimage.output_dim  
                 head_layers = [input_dim] + head_layers
                 if not head_dropout:
                     head_dropout = [0.0] * (len(head_layers) - 1)
-                self.deephead = nn.Sequential()
-                for i in range(1, len(head_layers)):
+                if head_num == 1:
+                    self.deephead = nn.Sequential()
+                    for i in range(1, len(head_layers)):
+                        self.deephead.add_module(
+                            "head_layer_{}".format(i - 1),
+                            dense_layer(
+                                head_layers[i - 1],
+                                head_layers[i],
+                                head_dropout[i - 1],
+                                head_batchnorm,
+                            ),
+                        )
                     self.deephead.add_module(
-                        "head_layer_{}".format(i - 1),
-                        dense_layer(
-                            head_layers[i - 1],
-                            head_layers[i],
-                            head_dropout[i - 1],
-                            head_batchnorm,
-                        ),
+                        "head_out", nn.Linear(head_layers[-1], output_dim)
                     )
-                self.deephead.add_module(
-                    "head_out", nn.Linear(head_layers[-1], output_dim)
-                )
+                if head_num > 1:
+                    assert head_num == output_dim, "head_num shoulde be 1 or %d(output_dim)"%output_dim
+                    self.deephead = nn.ModuleList()
+                    for h in range(head_num):
+                        head = nn.Sequential()
+                        for i in range(1, len(head_layers)):
+                            head.add_module(
+                                "head_layer_{}_{}".format(h, i - 1),
+                                dense_layer(
+                                    head_layers[i - 1],
+                                    head_layers[i],
+                                    head_dropout[i - 1],
+                                    head_batchnorm,
+                                ),
+                            )
+                        head.add_module(
+                            "head_out", nn.Linear(head_layers[-1], 1)
+                        )
+                        self.deephead.append(head)
             else:
                 self.deepdense = nn.Sequential(
                     self.deepdense, nn.Linear(self.deepdense.output_dim, output_dim)  # type: ignore
@@ -186,8 +208,12 @@ class WideDeep(nn.Module):
                 deepside = torch.cat([deepside, self.deeptext(X["deeptext"])], axis=1)  # type: ignore
             if self.deepimage is not None:
                 deepside = torch.cat([deepside, self.deepimage(X["deepimage"])], axis=1)  # type: ignore
-            deepside_out = self.deephead(deepside)
-            return out.add_(deepside_out)
+            if self.head_num == 1:
+                deepside_out = self.deephead(deepside)
+                return out.add_(deepside_out)
+            elif self.head_num > 1:
+                deepside_out = torch.cat([head(deepside) for head in self.deephead], axis=1)
+                return out.add_(deepside_out)
         else:
             out.add_(self.deepdense(X["deepdense"]))
             if self.deeptext is not None:
@@ -211,6 +237,7 @@ class WideDeep(nn.Module):
         gamma: float = 2,
         verbose: int = 1,
         seed: int = 1,
+        multi_gpu = False,
     ):
         r"""
         Function to set a number of attributes that will be used during the
@@ -331,6 +358,8 @@ class WideDeep(nn.Module):
 
         self.callback_container = CallbackContainer(self.callbacks)
         self.callback_container.set_model(self)
+        
+        self.multi_gpu = multi_gpu
 
         if use_cuda:
             self.cuda()
@@ -895,7 +924,11 @@ class WideDeep(nn.Module):
         y = y.cuda() if use_cuda else y
 
         self.optimizer.zero_grad()
-        y_pred = self._activation_fn(self.forward(X))
+        
+        if self.multi_gpu:
+            y_pred = self._activation_fn(nn.parallel.data_parallel(self, X))
+        else:
+            y_pred = self._activation_fn(self.forward(X))
         loss = self._loss_fn(y_pred, y)
         loss.backward()
         self.optimizer.step()
@@ -917,7 +950,10 @@ class WideDeep(nn.Module):
             y = target.float() if self.method != "multiclass" else target
             y = y.cuda() if use_cuda else y
 
-            y_pred = self._activation_fn(self.forward(X))
+            if self.multi_gpu:
+                y_pred = self._activation_fn(nn.parallel.data_parallel(self, X))
+            else:
+                y_pred = self._activation_fn(self.forward(X))
             loss = self._loss_fn(y_pred, y)
             self.valid_running_loss += loss.item()
             avg_loss = self.valid_running_loss / (batch_idx + 1)
@@ -966,6 +1002,10 @@ class WideDeep(nn.Module):
                 for i, data in zip(t, test_loader):
                     t.set_description("predict")
                     X = {k: v.cuda() for k, v in data.items()} if use_cuda else data
+                    if self.multi_gpu:
+                        preds = self._activation_fn(nn.parallel.data_parallel(self, X))
+                    else:
+                        preds = self._activation_fn(self.forward(X))
                     preds = self._activation_fn(self.forward(X))
                     if self.method == "multiclass":
                         preds = F.softmax(preds, dim=1)
