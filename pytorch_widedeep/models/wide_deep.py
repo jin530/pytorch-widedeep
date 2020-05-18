@@ -237,7 +237,6 @@ class WideDeep(nn.Module):
         gamma: float = 2,
         verbose: int = 1,
         seed: int = 1,
-        multi_gpu = False,
     ):
         r"""
         Function to set a number of attributes that will be used during the
@@ -359,8 +358,6 @@ class WideDeep(nn.Module):
         self.callback_container = CallbackContainer(self.callbacks)
         self.callback_container.set_model(self)
         
-        self.multi_gpu = multi_gpu
-
         if use_cuda:
             self.cuda()
 
@@ -925,10 +922,7 @@ class WideDeep(nn.Module):
 
         self.optimizer.zero_grad()
         
-        if self.multi_gpu:
-            y_pred = self._activation_fn(nn.parallel.data_parallel(self, X))
-        else:
-            y_pred = self._activation_fn(self.forward(X))
+        y_pred = self._activation_fn(self.forward(X))
         loss = self._loss_fn(y_pred, y)
         loss.backward()
         self.optimizer.step()
@@ -950,10 +944,7 @@ class WideDeep(nn.Module):
             y = target.float() if self.method != "multiclass" else target
             y = y.cuda() if use_cuda else y
 
-            if self.multi_gpu:
-                y_pred = self._activation_fn(nn.parallel.data_parallel(self, X))
-            else:
-                y_pred = self._activation_fn(self.forward(X))
+            y_pred = self._activation_fn(self.forward(X))
             loss = self._loss_fn(y_pred, y)
             self.valid_running_loss += loss.item()
             avg_loss = self.valid_running_loss / (batch_idx + 1)
@@ -1002,10 +993,6 @@ class WideDeep(nn.Module):
                 for i, data in zip(t, test_loader):
                     t.set_description("predict")
                     X = {k: v.cuda() for k, v in data.items()} if use_cuda else data
-                    if self.multi_gpu:
-                        preds = self._activation_fn(nn.parallel.data_parallel(self, X))
-                    else:
-                        preds = self._activation_fn(self.forward(X))
                     preds = self._activation_fn(self.forward(X))
                     if self.method == "multiclass":
                         preds = F.softmax(preds, dim=1)
