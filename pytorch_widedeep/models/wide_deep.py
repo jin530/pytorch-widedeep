@@ -695,7 +695,7 @@ class WideDeep(nn.Module):
             return F.mse_loss(y_pred, y_true.view(-1, 1))
         if self.method == "binary":
             return F.binary_cross_entropy(
-                y_pred, y_true, weight=self.class_weight
+                y_pred.squeeze(), y_true, weight=self.class_weight
             )
         if self.method == "multiclass":
             return F.cross_entropy(y_pred, y_true, weight=self.class_weight)
